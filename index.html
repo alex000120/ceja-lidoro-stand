@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#070a14">
+  <title>IA Holográfica · Control por Gestos</title>
+  <meta name="description" content="Stand interactivo: controla videos con gestos de ambas manos.">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div id="app" class="app">
+
+  <!-- Fondo: video a pantalla completa -->
+  <video id="player" class="player" playsinline preload="auto"></video>
+  <div id="stage-fx" class="stage-fx" aria-hidden="true"></div>
+
+  <!-- Overlay transparente: esqueleto y cursor -->
+  <canvas id="overlay" class="overlay" aria-hidden="true"></canvas>
+  <div id="cursor" class="cursor" aria-hidden="true">
+    <span class="cursor-ring"></span>
+    <span class="cursor-dot"></span>
+  </div>
+  <div id="ripples" class="ripples" aria-hidden="true"></div>
+
+  <!-- Cabecera -->
+  <header class="topbar glass">
+    <div class="brand">
+      <span class="brand-orb"></span>
+      <div>
+        <h1>IA Holográfica</h1>
+        <p>Control por gestos</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <span id="fps-badge" class="chip">-- fps</span>
+      <button class="icon-btn" id="btn-help" data-clickable aria-label="Ver gestos" title="Gestos">?</button>
+      <button class="icon-btn" id="btn-settings" data-clickable aria-label="Ajustes" title="Ajustes">⚙</button>
+      <button class="icon-btn" id="btn-fullscreen" data-clickable aria-label="Pantalla completa" title="Pantalla completa">⛶</button>
+    </div>
+  </header>
+
+  <!-- Mini cámara (PIP) con estado de detección -->
+  <aside class="pip glass" id="pip">
+    <div class="pip-frame">
+      <video id="cam-preview" playsinline muted></video>
+    </div>
+    <div class="pip-status">
+      <span id="det-dot" class="dot dot-red"></span>
+      <span id="det-text">Buscando manos…</span>
+    </div>
+  </aside>
+
+  <!-- Dock inferior: carrusel + transporte -->
+  <section class="dock glass" id="dock">
+    <div class="carousel" id="carousel" role="listbox" aria-label="Videos"></div>
+
+    <div class="transport">
+      <button class="tbtn" id="btn-prev" data-clickable aria-label="Video anterior" title="Anterior">⏮</button>
+      <button class="tbtn tbtn-main" id="btn-play" data-clickable aria-label="Reproducir o pausar" title="Reproducir / Pausa">▶</button>
+      <button class="tbtn" id="btn-next" data-clickable aria-label="Video siguiente" title="Siguiente">⏭</button>
+
+      <div class="seek-wrap">
+        <span id="t-cur" class="time">0:00</span>
+        <div class="slider" id="seek" data-slider data-kind="seek" role="slider" aria-label="Posición">
+          <div class="slider-fill"></div>
+          <div class="slider-knob"></div>
+        </div>
+        <span id="t-dur" class="time">0:00</span>
+      </div>
+
+      <div class="vol-wrap">
+        <span class="vol-icon" id="vol-icon">🔊</span>
+        <div class="slider slider-sm" id="volume" data-slider data-kind="volume" role="slider" aria-label="Volumen">
+          <div class="slider-fill"></div>
+          <div class="slider-knob"></div>
+        </div>
+      </div>
+
+      <button class="tbtn tbtn-snap" id="btn-snap" data-clickable aria-label="Foto recuerdo" title="Foto recuerdo">📸</button>
+    </div>
+  </section>
+
+  <!-- Aviso de gesto / estado -->
+  <div id="toast" class="toast glass" role="status" aria-live="polite"></div>
+
+  <!-- Pantalla de inicio (permiso de cámara) -->
+  <div id="start" class="modal show" role="dialog" aria-modal="true" aria-labelledby="start-title">
+    <div class="modal-card glass start-card">
+      <div class="orb-large"></div>
+      <h2 id="start-title">Bienvenido</h2>
+      <p>Usá tus manos frente a la cámara para controlar los videos.</p>
+      <button class="btn btn-primary" id="btn-start" data-clickable>Iniciar experiencia</button>
+      <p class="small">Te pediremos permiso para usar la cámara.</p>
+    </div>
+  </div>
+
+  <!-- Ayuda de gestos -->
+  <div id="help" class="modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <div class="modal-card glass">
+      <header class="modal-head">
+        <h2 id="help-title">Gestos</h2>
+        <button class="icon-btn" data-close data-clickable aria-label="Cerrar">✕</button>
+      </header>
+      <ul class="gesture-list">
+        <li><b>Puño cerrado</b> <span>Reproducir / pausar</span></li>
+        <li><b>Palma abierta quieta</b> <span>Reproducir / pausar</span></li>
+        <li><b>Deslizar palma ← / →</b> <span>Siguiente / anterior video</span></li>
+        <li><b>Pinza (pulgar + índice)</b> <span>Clic en el cursor, o arrastrar barras</span></li>
+        <li><b>Segunda mano: palma subir / bajar</b> <span>Volumen</span></li>
+        <li><b>Segunda mano: pulgar + índice separados</b> <span>Adelantar / retroceder</span></li>
+        <li><b>Corazón con ambas manos</b> <span>Foto recuerdo con cuenta regresiva</span></li>
+      </ul>
+      <p class="small">También podés usar el mouse o el teclado: espacio (reproducir), ← → (cambiar video), F (pantalla completa).</p>
+    </div>
+  </div>
+
+  <!-- Ajustes -->
+  <div id="settings" class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="modal-card glass modal-wide">
+      <header class="modal-head">
+        <h2 id="settings-title">Ajustes</h2>
+        <button class="icon-btn" data-close data-clickable aria-label="Cerrar">✕</button>
+      </header>
+
+      <div class="form-grid">
+        <label class="field">
+          <span>Perfil de dispositivo</span>
+          <select id="set-preset">
+            <option value="auto">Automático</option>
+            <option value="bajo">Bajo (celular / equipos viejos)</option>
+            <option value="medio">Medio</option>
+            <option value="alto">Alto (PC potente)</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Resolución de cámara</span>
+          <select id="set-res">
+            <option value="640x480">640 × 480</option>
+            <option value="960x540">960 × 540</option>
+            <option value="1280x720">1280 × 720</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>FPS de procesamiento</span>
+          <select id="set-fps">
+            <option value="15">15</option>
+            <option value="24">24</option>
+            <option value="30">30</option>
+            <option value="60">60</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Modelo de detección</span>
+          <select id="set-complexity">
+            <option value="0">Rápido</option>
+            <option value="1">Equilibrado</option>
+          </select>
+        </label>
+
+        <label class="field range">
+          <span>Sensibilidad de gestos <output id="out-sens"></output></span>
+          <input type="range" id="set-sens" min="0.5" max="2" step="0.1">
+        </label>
+
+        <label class="field range">
+          <span>Suavizado del cursor <output id="out-smooth"></output></span>
+          <input type="range" id="set-smooth" min="0" max="0.9" step="0.05">
+        </label>
+
+        <label class="field">
+          <span>Mano dominante (cursor)</span>
+          <select id="set-dominant">
+            <option value="auto">Automática</option>
+            <option value="Right">Derecha</option>
+            <option value="Left">Izquierda</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Punto del cursor</span>
+          <select id="set-cursor-src">
+            <option value="indice">Punta del índice</option>
+            <option value="palma">Centro de la palma</option>
+          </select>
+        </label>
+
+        <label class="field range">
+          <span>Tiempo de permanencia (dwell) <output id="out-dwell"></output></span>
+          <input type="range" id="set-dwell" min="600" max="2500" step="100">
+        </label>
+
+        <label class="field">
+          <span>Foto: fuente</span>
+          <select id="set-snap-src">
+            <option value="video">Video + cámara</option>
+            <option value="camara">Solo cámara</option>
+          </select>
+        </label>
+
+        <label class="toggle"><input type="checkbox" id="set-dwell-on"><span>Clic por permanencia</span></label>
+        <label class="toggle"><input type="checkbox" id="set-skeleton"><span>Mostrar esqueleto de manos</span></label>
+        <label class="toggle"><input type="checkbox" id="set-mirror"><span>Espejo (cámara frontal)</span></label>
+        <label class="toggle"><input type="checkbox" id="set-pip"><span>Mostrar mini cámara</span></label>
+      </div>
+
+      <footer class="modal-foot">
+        <button class="btn" id="btn-reset" data-clickable>Restablecer</button>
+        <button class="btn btn-primary" id="btn-apply" data-clickable>Aplicar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Cuenta regresiva -->
+  <div id="countdown" class="countdown" aria-live="assertive">
+    <span id="countdown-num"></span>
+  </div>
+
+  <!-- Vista previa de la foto -->
+  <div id="photo" class="modal" role="dialog" aria-modal="true" aria-labelledby="photo-title">
+    <div class="modal-card glass modal-wide photo-card">
+      <header class="modal-head">
+        <h2 id="photo-title">Tu recuerdo</h2>
+        <button class="icon-btn" data-close data-clickable aria-label="Cerrar">✕</button>
+      </header>
+      <img id="photo-img" alt="Foto recuerdo del stand">
+      <footer class="modal-foot">
+        <button class="btn" id="btn-photo-again" data-clickable>Otra foto</button>
+        <button class="btn" id="btn-photo-share" data-clickable hidden>Compartir</button>
+        <a class="btn btn-primary" id="btn-photo-download" data-clickable download="recuerdo-stand.png">Descargar PNG</a>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Mensaje de error global -->
+  <div id="error-box" class="error-box glass" hidden></div>
+</div>
+
+<!-- MediaPipe Hands (CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
